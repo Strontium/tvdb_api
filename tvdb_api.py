@@ -12,28 +12,13 @@ Simple-to-use Python interface to The TVDB's API (www.thetvdb.com)
 
 Example usage:
 
->>> from tvdb_api import tvdb
->>> db = tvdb()
+>>> from tvdb_api import Tvdb
+>>> db = Tvdb()
 >>> db['Lost'][4][11]['name']
 'Cabin Fever'
 """
 __author__ = "dbr/Ben"
-__version__ = "0.1"
-
-class _Ddict(dict):
-    """Lazy-dict, automatically creates multidimensional dicts
-    by having __getitem__ create sub-dicts automatically"""
-    def __init__(self, default=None):
-        dict.__init__(self)
-        self.default = default
-    #end __init__
-
-    def __getitem__(self, key):
-        if not self.has_key(key):
-            self[key] = self.__class__(self.default) # Create sub-instance
-        return dict.__getitem__(self, key)
-    #end __getitem__
-#end _Ddict
+__version__ = "0.3"
 
 class Cache:
     """
@@ -44,8 +29,8 @@ class Cache:
     Caches complete files to temp directory, 
     
     >>> ca = Cache()
-    >>> ca.loadUrl("http://example.com")
-    <html><body>page!</body></html>
+    >>> ca.loadUrl("http://example.com") #doctest: +ELLIPSIS
+    '<HTML>...'
     """
     import os
     import time
@@ -182,6 +167,64 @@ class Show:
                 raise tvdb_seasonnotfound
         else:
             return dict.__getitem__(self.seasons, season_numer)
+    def search(self, contents = None, key = None):
+        """
+        Search all episodes. Can search all values, or a specific one.
+        Always returns an array (can be empty). First index is first
+        found episode, and so on.
+        Each array index is an Episode() instance, so doing
+        search_results[0]['name'] will retrive the episode name.
+        
+        Examples
+        These examples assume  t is an instance of Tvdb():
+        >>> t = Tvdb()
+        >>>
+        
+        Search for all episodes of Scrubs episodes 
+        with a bit of data containg "my first day":
+        
+        >>> t['Scrubs'].search("my first day") #doctest: +ELLIPSIS
+        [<__main__.Episode instance at 0x...>]
+        >>>
+        
+        Search for "My Name Is Earl" named "Faked His Own Death":
+        
+        >>> t['My Name Is Earl'].search('Faked His Own Death', key = 'name') #doctest: +ELLIPSIS
+        [<__main__.Episode instance at 0x...>]
+        >>>
+        
+        Using search results
+        
+        >>> results = t['Scrubs'].search("my first")
+        >>> print results[0]['name']
+        My First Day
+        >>> for x in results: print x['name']
+        My First Day
+        My First Step
+        My First Kill
+        >>>
+        """
+        if key == contents == None:
+            raise TypeError, "must supply atleast one type of search"
+        
+        results = []
+        for cur_season in self.seasons.values():
+            for cur_ep in cur_season.episodes.values():
+                for cur_key, cur_value in cur_ep.data.items():
+                    if key != None:
+                        if not cur_key.find(key) > -1:
+                            # key doesn't match requested search, skip
+                            continue
+                    #end if key != None
+                    if str(cur_value).lower().find(str(contents).lower()) > -1:
+                        results.append(cur_ep)
+                        continue
+                    #end if cur_value.find()
+                #end for cur_key, cur_value
+            #end for cur_ep
+        #end for cur_season
+        return results
+            
 class Season:
     def __init__(self):
         self.episodes = {}
@@ -191,7 +234,6 @@ class Season:
         dict.__setitem__(self.episodes, episode_number, value)
     def __getitem__(self, episode_number):
         if not dict.has_key(self.episodes, episode_number):
-            print "episodes does not have key", episode_number
             raise tvdb_episodenotfound
         else:
             return dict.__getitem__(self.episodes, episode_number)
@@ -210,9 +252,9 @@ class Episode:
 class Tvdb:
     """
     Create easy-to-use interface to name of season/episode name
-    >>> i = Tvdb()
-    >>> i['showname']['1']['24']['name']
-    'Last Episode'
+    >>> t = Tvdb()
+    >>> t['Scrubs'][1][24]['name']
+    'My Last Day'
     """
     from BeautifulSoup import BeautifulStoneSoup
     import random
@@ -384,8 +426,7 @@ class Tvdb:
                     allSeries[i]['sid'].encode("UTF-8","ignore")
                 )
             
-            valid_input = False
-            while not valid_input:
+            while True: # return breaks this loop
                 try:
                     print "Enter choice (first number, ? for help):"
                     ans = raw_input()
@@ -423,12 +464,11 @@ class Tvdb:
         for ep in epsSoup.findAll('episode'):
             ep_no = int( ep.find('episodenumber').contents[0] )
             seas_no = int( ep.find('seasonnumber').contents[0] )
-            if len( ep.find('episodename').contents ) == 0:
-                self.log.debug('Could not find episode name for seas:%s ep:%s' % (seas_no, ep_no))
-                ep_name = None
-            else:
+            self._setItem(sid, seas_no, ep_no, 'episodenumber', ep_no)
+            self._setItem(sid, seas_no, ep_no, 'seasonnumber', seas_no)
+            if len( ep.find('episodename').contents ) > 0:
                 ep_name = str( ep.find('episodename').contents[0] )
-            self._setItem(sid, seas_no, ep_no, 'name', ep_name)
+                self._setItem(sid, seas_no, ep_no, 'name', ep_name)
         #end for ep
     #end _geEps
     
@@ -447,8 +487,8 @@ class Tvdb:
             sname, sid = selected_series['name'], selected_series['sid']
             self.log.debug('Got %s, sid %s' % (sname, sid) )
             
-            self._setShowData(sid, 'showname', sname)
             self.corrections[name] = sid
+            self._setShowData(sid, 'showname', sname)
             self._getEps( sid )
         #end if self.corrections.has_key
         return sid
@@ -517,7 +557,19 @@ class test_tvdb(unittest.TestCase):
         be updated ever (to have the episode name be the air-date)
         """
         self.assertRaises(tvdb_attributenotfound, lambda:self.t['CNNNN'][1][6]['afakeattributething'])
-#end test_tvnamer
+    
+    def test_searchepname(self):
+        """
+        Searches for an episode name
+        """
+        self.assertEquals(len(self.t['My Name Is Earl'].search('Faked His Own Death')), 1)
+        self.assertEquals(self.t['My Name Is Earl'].search('Faked His Own Death')[0]['name'], 'Faked His Own Death')
+        self.assertEquals(self.t['Scrubs'].search('my first')[0]['name'], 'My First Day')
+    
+    def test_doctest(self):
+        import doctest
+        doctest.testmod()
+#end test_tvdb
 
     
 def run_tests():
