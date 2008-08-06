@@ -14,8 +14,8 @@ Example usage:
 
 >>> from tvdb_api import Tvdb
 >>> db = Tvdb()
->>> db['Lost'][4][11]['name']
-'Cabin Fever'
+>>> db['Lost'][4][11]['episodename']
+u'Cabin Fever'
 """
 __author__ = "dbr/Ben"
 __version__ = "0.3"
@@ -173,7 +173,7 @@ class Show:
         Always returns an array (can be empty). First index is first
         found episode, and so on.
         Each array index is an Episode() instance, so doing
-        search_results[0]['name'] will retrive the episode name.
+        search_results[0]['episodename'] will retrive the episode name.
         
         Examples
         These examples assume  t is an instance of Tvdb():
@@ -196,9 +196,9 @@ class Show:
         Using search results
         
         >>> results = t['Scrubs'].search("my first")
-        >>> print results[0]['name']
+        >>> print results[0]['episodename']
         My First Day
-        >>> for x in results: print x['name']
+        >>> for x in results: print x['episodename']
         My First Day
         My First Step
         My First Kill
@@ -253,8 +253,8 @@ class Tvdb:
     """
     Create easy-to-use interface to name of season/episode name
     >>> t = Tvdb()
-    >>> t['Scrubs'][1][24]['name']
-    'My Last Day'
+    >>> t['Scrubs'][1][24]['episodename']
+    u'My Last Day'
     """
     from BeautifulSoup import BeautifulStoneSoup
     import random
@@ -344,7 +344,7 @@ class Tvdb:
         less pretty method of setting items.. but since the API
         is supposed to be read-only, this is the best way to
         do it!
-        The problem is that calling tvdb[1][24]['name'] = "name"
+        The problem is that calling tvdb[1][24]['episodename'] = "name"
         calls __getitem__ on tvdb[1], there is no way to check if
         tvdb.__dict__ should have a key "1" before we auto-create it
         """
@@ -461,14 +461,14 @@ class Tvdb:
         """
         self.log.debug('Getting all episodes of %s' % (sid))
         epsSoup = self._getsoupsrc( self.config['url_epInfo']% (sid) )
+        
         for ep in epsSoup.findAll('episode'):
             ep_no = int( ep.find('episodenumber').contents[0] )
             seas_no = int( ep.find('seasonnumber').contents[0] )
-            self._setItem(sid, seas_no, ep_no, 'episodenumber', ep_no)
-            self._setItem(sid, seas_no, ep_no, 'seasonnumber', seas_no)
-            if len( ep.find('episodename').contents ) > 0:
-                ep_name = str( ep.find('episodename').contents[0] )
-                self._setItem(sid, seas_no, ep_no, 'name', ep_name)
+            
+            for cur_attr in ep.findChildren():
+                if len(cur_attr.contents) > 0:
+                    self._setItem(sid, seas_no, ep_no, cur_attr.name, cur_attr.contents[0])
         #end for ep
     #end _geEps
     
@@ -525,15 +525,15 @@ class test_tvdb(unittest.TestCase):
         Checks the auto-correction of show names is working.
         It should correct the weirdly capitalised 'sCruBs' to 'Scrubs'
         """
-        self.assertEquals(self.t['scrubs'][1][4]['name'], 'My Old Lady')
+        self.assertEquals(self.t['scrubs'][1][4]['episodename'], 'My Old Lady')
         self.assertEquals(self.t['sCruBs']['showname'], 'Scrubs')
     
     def test_spaces(self):
         self.assertEquals(self.t['My Name Is Earl']['showname'], 'My Name Is Earl')
-        self.assertEquals(self.t['My Name Is Earl'][1][4]['name'], 'Faked His Own Death')
+        self.assertEquals(self.t['My Name Is Earl'][1][4]['episodename'], 'Faked His Own Death')
     
     def test_numeric(self):
-        self.assertEquals(self.t['24'][2][20]['name'], 'Day 2: 3:00 A.M.-4:00 A.M.')
+        self.assertEquals(self.t['24'][2][20]['episodename'], 'Day 2: 3:00 A.M.-4:00 A.M.')
         self.assertEquals(self.t['24']['showname'], '24')
     
     def test_seasonnotfound(self):
@@ -563,8 +563,11 @@ class test_tvdb(unittest.TestCase):
         Searches for an episode name
         """
         self.assertEquals(len(self.t['My Name Is Earl'].search('Faked His Own Death')), 1)
-        self.assertEquals(self.t['My Name Is Earl'].search('Faked His Own Death')[0]['name'], 'Faked His Own Death')
-        self.assertEquals(self.t['Scrubs'].search('my first')[0]['name'], 'My First Day')
+        self.assertEquals(self.t['My Name Is Earl'].search('Faked His Own Death')[0]['episodename'], 'Faked His Own Death')
+        self.assertEquals(self.t['Scrubs'].search('my first')[0]['episodename'], 'My First Day')
+    
+    def test_get_episode_overview(self):
+        self.assertEquals(self.t['Battlestar Galactica (2003)'][1][1]['overview'], 'The Convoy of refugees is attacked exactly thirty three minutes after every FTL jump, leading many to believe there is a traitor in their midst.')
     
     def test_doctest(self):
         import doctest
@@ -583,7 +586,7 @@ def simple_example():
     """
     db = Tvdb(interactive=True, debug=True)
     print db['Lost']['showname']
-    print db['Lost'][1][4]['name']
+    print db['Lost'][1][4]['episodename']
 
 def main():
     """
